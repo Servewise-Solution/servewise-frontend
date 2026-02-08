@@ -1,0 +1,212 @@
+import axiosInstance from "../config/axios.config";
+import cookie from "js-cookie";
+import type { OTPVerification, Role, VerifyResetOtpResponse } from "../types/auth.types";
+import type { UserLikeRoles } from "../types/auth.types";
+import {
+  type RegisterFormData,
+  type RegisterResponse,
+  type LoginFormData,
+  type LoginResponse
+} from "../types/auth.types";
+import axios from "axios";
+
+const getAuthUrl = (role: UserLikeRoles | Role, endpoint: string) =>
+  `/api/${role.toLowerCase()}/${endpoint}`;
+
+let isRefreshing = false;
+let pendingRequests: ((token: string | null) => void)[] = [];
+
+const getRoleFromUrl = (url: string): Role => {
+  if (url.includes("/api/provider/")) {
+    return "PROVIDER";
+  } else if (url.includes("/api/admin/")) {
+    return "ADMIN";
+  } else {
+    return "USER";
+  }
+};
+
+export const newRefreshToken = async () => {
+  try {
+    if (isRefreshing) {
+      console.log("Token refresh already in progress");
+      return new Promise<string | null>((resolve) => {
+        pendingRequests.push(resolve);
+      });
+    }
+
+    isRefreshing = true;
+
+    const response = await axiosInstance.get(`/api/auth/refresh-token`);
+
+    console.log("Response data:", response.data);
+
+    if (response.data.success) {
+      const newAccessToken = response.data.data.access_token;
+
+      cookie.set(`access_token`, newAccessToken, {
+        path: "/",
+      });
+
+      axiosInstance.defaults.headers.common["Authorization"] =
+        `Bearer ${newAccessToken}`;
+
+      pendingRequests.forEach((resolve) => resolve(newAccessToken));
+      pendingRequests = [];
+
+      isRefreshing = false;
+      return newAccessToken;
+    } else {
+      pendingRequests.forEach((resolve) => resolve(null));
+      pendingRequests = [];
+      isRefreshing = false;
+      throw new Error("Failed to refresh token");
+    }
+  } catch (error) {
+    pendingRequests.forEach((resolve) => resolve(null));
+    pendingRequests = [];
+    isRefreshing = false;
+    console.error("Error refreshing access token:", error);
+    throw error;
+  }
+};
+
+axiosInstance.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const urlpath = error.config?.url || "";
+    const role = getRoleFromUrl(urlpath);
+
+    if (
+      error.response?.status === 403 &&
+      error.response?.data?.accountBlocked
+    ) {
+      console.log("Account is blocked, redirecting to login...");
+
+      cookie.remove(`access_token`);
+      delete axiosInstance.defaults.headers.common["Authorization"];
+
+      window.location.href = `/${role.toLowerCase()}/login`;
+      return Promise.reject(error);
+    }
+
+    if (
+      error.response?.status === 401 &&
+      !error.config.url.includes("/api/auth/refreshtoken")
+    ) {
+      try {
+        const newAccessToken = await newRefreshToken();
+        if (newAccessToken) {
+          const newConfig = { ...error.config };
+          if (!newConfig.headers) {
+            newConfig.headers = {};
+          }
+          newConfig.headers["Authorization"] = `Bearer ${newAccessToken}`;
+
+          return axios(newConfig);
+        } else {
+          throw new Error("Could not get a new token");
+        }
+      } catch (refreshError) {
+        console.error("Could not refresh token, logging out...");
+        cookie.remove(`access_token`);
+        window.location.href = `/${role.toLowerCase()}/login`;
+        return Promise.reject(refreshError);
+      }
+    }
+
+    return Promise.reject(error);
+  },
+);
+
+axiosInstance.interceptors.request.use(
+  (config) => {
+    const accessToken = cookie.get(`access_token`);
+
+    if (accessToken) {
+      config.headers.Authorization = `Bearer ${accessToken}`;
+    }
+
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  },
+);
+
+const register = async (formData: RegisterFormData, role: UserLikeRoles) => {
+  const response = await axiosInstance.post<RegisterResponse>(
+    getAuthUrl(role, "register"),
+    formData,
+  );
+  return response.data;
+};
+
+const login = async (formData: LoginFormData, role: Role) => {
+  const response = await axiosInstance.post<LoginResponse>(
+    getAuthUrl(role, "login"),
+    formData,
+  );
+  console.log("response in the login function in the auth service:", response);
+  return response.data;
+};
+
+const verifyOtp = async (
+  data: OTPVerification,
+  role: UserLikeRoles,
+  purpose: "REGISTRATION" | "PASSWORD_RESET" = "REGISTRATION"
+) => {
+  const payload = { ...data, purpose };
+
+  const response = await axiosInstance.post<
+    RegisterResponse | VerifyResetOtpResponse
+  >(getAuthUrl(role, "verify-otp"), payload);
+
+  return response.data;
+};
+
+const resendOtp = async (email: string, role: UserLikeRoles) => {
+  const response = await axiosInstance.post(getAuthUrl(role, "resend-otp"), {
+    email,
+  });
+  return response.data;
+};
+
+const forgotPassword = async (email: string, role: UserLikeRoles) => {
+  const response = await axiosInstance.post(
+    getAuthUrl(role, "forgot-password"),
+    { email }
+  );
+  return response.data;
+};
+
+const resetPassword = async (
+  email: string,
+  password: string,
+  role: UserLikeRoles
+): Promise<{ message: string }> => {
+  const response = await axiosInstance.post(
+    getAuthUrl(role, "reset-password"),
+    {
+      email,
+      password,
+    }
+  );
+  return response.data;
+};
+
+const logOut = async (role: Role) => {
+  const response = await axiosInstance.get(getAuthUrl(role, "logout"));
+  return response.data;
+};
+
+export const authService = {
+  register,
+  login,
+  verifyOtp,
+  resendOtp,
+  newRefreshToken,
+  forgotPassword,
+  resetPassword,
+  logOut,
+};
