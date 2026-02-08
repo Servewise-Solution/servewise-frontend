@@ -42,6 +42,42 @@ export interface ModalProps {
   hideButtons?: boolean;
 }
 
+export interface Column<T> {
+  key: keyof T | "action" | string;
+  label: string;
+  render?: (item: T, index: number) => React.ReactNode;
+}
+
+export interface TableProps<T> {
+  data: T[];
+  columns: Column<T>[];
+  currentPage: number;
+  pageSize: number;
+  loading?: boolean;
+}
+
+export interface PaginationProps {
+  currentPage: number;
+  totalPages: number;
+  onPageChange: (page: number) => void;
+}
+
+export interface SelectFieldProps {
+  label?: string;
+  name: string;
+  value: string;
+  onChange: (e: React.ChangeEvent<HTMLSelectElement>) => void;
+  onBlur?: (e: React.FocusEvent<HTMLSelectElement>) => void;
+  options: Array<{ value: string; label: string }>;
+  placeholder?: string;
+  required?: boolean;
+  disabled?: boolean;
+  error?: string;
+  touched?: boolean;
+  icon?: React.ReactNode;
+  className?: string;
+}
+
 export interface AuthLayoutProps {
   role: "USER" | "ADMIN" | "PROVIDER";
   children: React.ReactNode;

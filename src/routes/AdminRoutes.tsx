@@ -5,6 +5,7 @@ import { AdminLogin } from "../pages/admin/auth/AdminLogin";
 import { PageNotFound } from "../components/common/PageNotFound";
 import AdminDashboard from "../pages/admin/adminPages/AdminDashboard";
 import { AdminPrivateRoute } from "./PrivateRoutes";
+import { UserListPage } from "../pages/admin/adminPages/UserListPage";
 
 export const AdminRoutes: React.FC = () => {
   const user: string = "Admin";
@@ -17,6 +18,7 @@ export const AdminRoutes: React.FC = () => {
 
       <Route element={<AdminPrivateRoute />}>
         <Route path="dashboard" element={<AdminDashboard />} />
+        <Route path="users" element={<UserListPage />} />
       </Route>
 
       <Route
